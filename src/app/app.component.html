@@ -1,0 +1,264 @@
+<div class="extension-main">
+  <!-- Radio Buttons for Selection -->
+  <div class="radio-section">
+    <mat-radio-group
+      [(ngModel)]="selectedOption"
+      (change)="onRadioOptionChange($event)"
+      aria-label="Select an option"
+    >
+      <mat-radio-button color="primary" value="1">Numbers</mat-radio-button>
+      <mat-radio-button color="primary" value="2">Groups</mat-radio-button>
+      <mat-radio-button color="primary" value="3">Contacts</mat-radio-button>
+    </mat-radio-group>
+  </div>
+
+  <!-- Conditional Form Content -->
+  <div class="content-section">
+    <form [formGroup]="myForm" class="form-container">
+      @if(isProcessing){
+        <div class="status processing">Processing… please wait</div>
+      }
+      @if(!isProcessing && statusText){
+        <div class="status success">{{ statusText }}</div>
+      }
+      @if(selectedOption == '1'){
+      <!-- Upload Excel Section -->
+      <div class="upload-section">
+        <input
+          type="file"
+          id="fileInput"
+          (change)="onFileChange($event)"
+          accept=".xlsx, .xls"
+          hidden
+        />
+        <button class="btn-upload" mat-flat-button (click)="triggerFileInput()">
+          <i class="fas fa-upload"></i> Upload Excel
+        </button>
+      </div>
+
+      <!-- Phone Number Input -->
+      <div class="phone-input-section">
+        <mat-form-field appearance="outline" class="form-control">
+          <mat-select
+            (selectionChange)="onCountrySelect($event)"
+            formControlName="country"
+          >
+            <mat-select-trigger>
+              @if(myForm.controls['country'].value){
+              <img
+                [src]="myForm.controls['country'].value.flag"
+                class="flag-icon"
+              />
+              {{ myForm.controls["country"].value?.dial_code }}
+              }
+            </mat-select-trigger>
+            @for (country of countriesData; track country.code) {
+            <mat-option [value]="country">
+              <img [src]="country.flag" class="flag-icon" />
+              {{ country.name }} {{ country.dial_code }}
+            </mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+
+        <mat-form-field class="form-control">
+          <mat-chip-grid #chipGrid aria-label="Phone number list">
+            @for(number of phoneNumbersArray; track $index){
+            <mat-chip-row (removed)="removePhoneNumber($index)">
+              {{ number }}
+              <button matChipRemove>
+                <mat-icon>cancel</mat-icon>
+              </button>
+            </mat-chip-row>
+            }
+            <input
+              placeholder="Add Number..."
+              [matChipInputFor]="chipGrid"
+              [matChipInputSeparatorKeyCodes]="separatorKeysCodes"
+              [matChipInputAddOnBlur]="true"
+              (matChipInputTokenEnd)="addPhoneNumber($event)"
+              (paste)="onPaste($event)"
+              (input)="onInput($event)"
+              (keypress)="onKeyPress($event)"
+              formControlName="phone"
+            />
+          </mat-chip-grid>
+        </mat-form-field>
+      </div>
+      }
+
+      <!-- Group Selection -->
+      @if(selectedOption == '2'){
+      <div class="group-selection">
+        <mat-form-field class="form-control">
+          <mat-chip-grid #chipGrid aria-label="WhatsApp group list">
+            @for(group of whatsappGroupArray; track $index){
+            <mat-chip-row (removed)="removeWhatsappGroup($index)">
+              {{ group.name }}
+              <button matChipRemove>
+                <mat-icon>cancel</mat-icon>
+              </button>
+            </mat-chip-row>
+            }
+            <input placeholder="Groups..." [matChipInputFor]="chipGrid" />
+          </mat-chip-grid>
+        </mat-form-field>
+
+        @if(allGroupData && allGroupData.length > 0){
+        <mat-form-field class="form-control">
+          <mat-select (selectionChange)="addWhatsappGroup($event)">
+            @for (group of allGroupData; track $index) {
+            <mat-option [value]="group">{{ group.name }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+        }
+      </div>
+      }
+
+      <!-- Contact Selection -->
+      @if(selectedOption == '3'){
+        <div  class="contact-selection">
+          <mat-form-field class="form-control">
+            <mat-chip-grid #chipGrid aria-label="Phone number list">
+              @for(contact of selectedContacts; track $index){
+              <mat-chip-row
+                (removed)="removeFromSelected(contact)"
+                [editable]="true"
+              >
+                {{ contact.name }}
+                <button matChipRemove [attr.aria-label]="'remove ' + contact">
+                  <mat-icon>cancel</mat-icon>
+                </button>
+              </mat-chip-row>
+              }
+              <input
+                placeholder="Contacts..."
+                [matChipInputFor]="chipGrid"
+                [matChipInputSeparatorKeyCodes]="separatorKeysCodes"
+                [matChipInputAddOnBlur]="true"
+              />
+            </mat-chip-grid>
+          </mat-form-field>
+  
+          <input
+            type="text"
+            formControlName="search"
+            placeholder="Search contacts"
+            (focus)="onInputFocus()"
+            (input)="filterContacts()"
+            class="search-box"
+            style="margin-top: 10px;margin-bottom: 10px;"
+          />
+          <!-- Dropdown -->
+          @if(showDropdown){
+          <div class="dropdown">
+            @for(contact of filteredContacts ; track $index){
+            <div class="dropdown-item" (click)="selectContact(contact)">
+              {{ contact.name }}
+            </div>
+            } @if(filteredContacts.length === 0){
+            <div class="dropdown-item no-results" style="
+            margin-bottom: 10px;
+            border: 1px solid green;
+            padding: 4px;
+            border-radius: 4px;">No results found</div>
+            }
+          </div>
+          }
+        </div>
+        }
+
+      <!-- Time Configuration -->
+      <div class="time-config">
+        <div class="time-row">
+          <p>Time gap b/w messages</p>
+          <input type="text" formControlName="msgTimeGap" />
+          <p>sec.</p>
+        </div>
+        <div class="time-row">
+          <p>Send to</p>
+          <input type="text" formControlName="batch" />
+          <p>no/s in each batch.</p>
+        </div>
+        <div class="time-row">
+          <p>Time-gap b/w batches:</p>
+          <input type="text" formControlName="batchTimeGap" />
+          <p>sec.</p>
+        </div>
+      </div>
+
+      @if(sheetSelectedFlag){
+      <div>
+        <mat-form-field appearance="outline" style="width: 160px;">
+          <mat-select (selectionChange)="onSheetHeaderSelect($event)" style="background-color: white;"
+            >
+            @for (header of sheetHeaders; track header) {
+            <mat-option [value]="header">
+              {{ header}} 
+            </mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+      </div>
+    }
+
+      <!-- Message Input & Attachments -->
+      <div class="message-section">
+        <textarea
+          class="message-box"
+          rows="5"
+          placeholder="Add Message"
+          formControlName="message"
+        ></textarea>
+
+        <div class="button-group">
+          <button
+            type="button"
+            class="btn-attach"
+            (click)="onAttachmentClick()"
+          >
+            <i class="fas fa-paperclip"></i>
+          </button>
+          <button type="button" class="btn-send" (click)="sendMessage()">
+            <i class="fa fa-paper-plane"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- File Attachments -->
+      @if(attachmentArray.length > 0){
+      <div class="file-list">
+        @for(file of attachmentArray; track $index){
+        <div class="file-item">
+          {{ file.name }}
+          <button
+            type="button"
+            class="btn-remove-file"
+            (click)="removeFile($index)"
+          >
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        }
+      </div>
+      } @if(selectedOption == '3'){
+      <button
+        (click)="downloadContactExcel()"
+        class="btn-send"
+        style="margin-top: 10px"
+      >
+        Download Contacts Excel
+      </button>
+      } @if(selectedOption == '2'){
+      <button
+        (click)="downloadGroupDataCsv()"
+        class="btn-send"
+        style="margin-top: 10px"
+      >
+        Download Group Contacts
+      </button>
+      }
+    </form>
+  </div>
+</div>
