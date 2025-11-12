@@ -1,4 +1,4 @@
-import { Component, ElementRef, ViewChild, HostListener, NgZone } from '@angular/core';
+import { Component, ElementRef, ViewChild, HostListener, NgZone, OnDestroy } from '@angular/core';
 import { ChromeExtensionService } from './chrome-extension.service';
 import * as XLSX from 'xlsx';
 import { FormControl, FormGroup, ReactiveFormsModule, FormsModule } from '@angular/forms';
@@ -26,7 +26,7 @@ interface StorageData {
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss'
 })
-export class AppComponent {
+export class AppComponent implements OnDestroy {
   myForm: FormGroup;
   loginStatus: boolean = false;
   sheetHeaders: any;
@@ -51,6 +51,7 @@ export class AppComponent {
   sheetSelectedFlag: boolean = false;
   isProcessing: boolean = false;
   statusText: string | null = null;
+  private statusTimer: any = null;
 
   constructor(private chromeService: ChromeExtensionService, private excelService: ExcelService, private ngZone: NgZone) {
     this.myForm = new FormGroup({
@@ -118,9 +119,24 @@ export class AppComponent {
           this.ngZone.run(() => {
             this.isProcessing = false;
             this.statusText = 'Messages sent successfully';
+
+            if (this.statusTimer) {
+              clearTimeout(this.statusTimer);
+            }
+            this.statusTimer = setTimeout(() => {
+              this.ngZone.run(() => {
+                this.statusText = null;
+              });
+            }, 10000); // Hide after 10 seconds
           });
         }
       });
+    }
+  }
+
+  ngOnDestroy(): void {
+    if (this.statusTimer) {
+      clearTimeout(this.statusTimer);
     }
   }
 
