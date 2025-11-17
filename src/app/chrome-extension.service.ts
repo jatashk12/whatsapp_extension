@@ -72,5 +72,21 @@ export class ChromeExtensionService {
       }
     });
   }
+
+  remove(key: string | string[]): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        chrome.storage.local.remove(key, () => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError.message);
+          } else {
+            resolve();
+          }
+        });
+      } else {
+        reject('Chrome storage API is not available.');
+      }
+    });
+  }
   
 }

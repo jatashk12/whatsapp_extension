@@ -52,6 +52,7 @@ export class AppComponent implements OnDestroy {
   isProcessing: boolean = false;
   statusText: string | null = null;
   private statusTimer: any = null;
+  private pendingCountryCode: string | null = null;
 
   constructor(private chromeService: ChromeExtensionService, private excelService: ExcelService, private ngZone: NgZone) {
     this.myForm = new FormGroup({
@@ -75,7 +76,10 @@ export class AppComponent implements OnDestroy {
     this.chromeService.getCountries().subscribe((data) => {
       this.countriesData = data;
       this.setDefaultCountry();
+      this.applyPendingCountry();
     });
+
+    await this.loadAttachmentsFromStorage();
 
     // Check if there is an open WhatsApp Web tab
     chrome.tabs.query({ url: "*://web.whatsapp.com/*" }, function (tabs) {
@@ -107,10 +111,13 @@ export class AppComponent implements OnDestroy {
         this.allContactData = data.allContactData as any[];
         this.allContactData.sort((a, b) => a.name.localeCompare(b.name));
         this.filteredContacts = [...this.allContactData];
+        this.rebuildFilteredContacts();
       }
     } catch (error) {
       console.error('Error retrieving group data:', error);
     }
+
+    await this.loadPersistedState();
 
     // Listen for completion signal from content script
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
@@ -123,6 +130,7 @@ export class AppComponent implements OnDestroy {
             if (this.statusTimer) {
               clearTimeout(this.statusTimer);
             }
+            this.clearStateAfterSend();
             this.statusTimer = setTimeout(() => {
               this.ngZone.run(() => {
                 this.statusText = null;
@@ -132,6 +140,10 @@ export class AppComponent implements OnDestroy {
         }
       });
     }
+
+    this.myForm.valueChanges.subscribe(() => {
+      this.persistState();
+    });
   }
 
   ngOnDestroy(): void {
@@ -142,6 +154,7 @@ export class AppComponent implements OnDestroy {
 
   onCountrySelect(event: any): void {
     this.selectedCountry = event.value;
+    this.persistState();
   }
 
   addPhoneNumber(event: MatChipInputEvent): void {
@@ -150,6 +163,7 @@ export class AppComponent implements OnDestroy {
     // Add the number if it is valid and not already added
     if (value && !this.phoneNumbersArray.includes(value)) {
       this.phoneNumbersArray.push(value);
+      this.persistState();
     }
 
     // Clear the input field
@@ -159,6 +173,7 @@ export class AppComponent implements OnDestroy {
   removePhoneNumber(index: number): void {
     if (index >= 0) {
       this.phoneNumbersArray.splice(index, 1); // Remove the number
+      this.persistState();
     }
   }
 
@@ -167,6 +182,127 @@ export class AppComponent implements OnDestroy {
     const defaultCountry = this.countriesData.find(country => country.code === 'IN');
     if (defaultCountry) {
       this.myForm.get('country')?.setValue(defaultCountry);
+    }
+  }
+
+  private applyPendingCountry() {
+    if (this.pendingCountryCode && this.countriesData && this.countriesData.length > 0) {
+      const match = this.countriesData.find(country => country.code === this.pendingCountryCode);
+      if (match) {
+        this.myForm.get('country')?.setValue(match);
+      }
+      this.pendingCountryCode = null;
+    }
+  }
+
+  private async loadAttachmentsFromStorage() {
+    try {
+      const data = await this.chromeService.get<{ attachmentsData: any[] }>('attachmentsData');
+      if (data && (data as any).attachmentsData) {
+        this.attachmentArray = (data as any).attachmentsData || [];
+      }
+    } catch (error) {
+      console.error('Error loading attachments from storage:', error);
+    }
+  }
+
+  private async loadPersistedState() {
+    try {
+      const savedWrapper = await this.chromeService.get<any>('popupState');
+      const saved = savedWrapper?.popupState || savedWrapper;
+      if (!saved || Object.keys(saved).length === 0) {
+        return;
+      }
+
+      this.selectedOption = saved.selectedOption ?? this.selectedOption;
+      this.phoneNumbersArray = Array.isArray(saved.phoneNumbersArray) ? saved.phoneNumbersArray : this.phoneNumbersArray;
+      this.whatsappGroupArray = Array.isArray(saved.whatsappGroupArray) ? saved.whatsappGroupArray : this.whatsappGroupArray;
+      this.selectedContacts = Array.isArray(saved.selectedContacts) ? saved.selectedContacts : this.selectedContacts;
+      this.sheetHeaders = saved.sheetHeaders ?? this.sheetHeaders;
+      this.sheetData = saved.sheetData ?? this.sheetData;
+      this.sheetSelectedFlag = saved.sheetSelectedFlag ?? this.sheetSelectedFlag;
+      this.excelMsgArray = saved.excelMsgArray ?? this.excelMsgArray;
+
+      if (saved.message !== undefined) {
+        this.myForm.get('message')?.setValue(saved.message);
+      }
+      if (saved.msgTimeGap !== undefined) {
+        this.myForm.get('msgTimeGap')?.setValue(saved.msgTimeGap);
+      }
+      if (saved.batch !== undefined) {
+        this.myForm.get('batch')?.setValue(saved.batch);
+      }
+      if (saved.batchTimeGap !== undefined) {
+        this.myForm.get('batchTimeGap')?.setValue(saved.batchTimeGap);
+      }
+      if (saved.countryCode) {
+        this.pendingCountryCode = saved.countryCode;
+        this.applyPendingCountry();
+      }
+
+      this.rebuildFilteredContacts();
+    } catch (error) {
+      console.error('Error loading popup state:', error);
+    }
+  }
+
+  private rebuildFilteredContacts() {
+    if (this.allContactData && this.allContactData.length > 0) {
+      const selectedIds = new Set(this.selectedContacts.map((c: any) => c?.id?._serialized));
+      this.filteredContacts = this.allContactData.filter((c: any) => !selectedIds.has(c?.id?._serialized));
+    }
+  }
+
+  private async persistState() {
+    try {
+      const country = this.myForm.get('country')?.value;
+      const popupState = {
+        selectedOption: this.selectedOption,
+        phoneNumbersArray: this.phoneNumbersArray,
+        whatsappGroupArray: this.whatsappGroupArray,
+        selectedContacts: this.selectedContacts,
+        message: this.myForm.get('message')?.value,
+        msgTimeGap: this.myForm.get('msgTimeGap')?.value,
+        batch: this.myForm.get('batch')?.value,
+        batchTimeGap: this.myForm.get('batchTimeGap')?.value,
+        countryCode: country?.code,
+        sheetHeaders: this.sheetHeaders,
+        sheetData: this.sheetData,
+        sheetSelectedFlag: this.sheetSelectedFlag,
+        excelMsgArray: this.excelMsgArray
+      };
+      await this.chromeService.set('popupState', popupState);
+    } catch (error) {
+      console.error('Error persisting popup state:', error);
+    }
+  }
+
+  private async clearStateAfterSend() {
+    this.phoneNumbersArray = [];
+    this.whatsappGroupArray = [];
+    this.selectedContacts = [];
+    this.attachmentArray = [];
+    this.excelMsgArray = [];
+    this.sheetData = null;
+    this.sheetHeaders = null;
+    this.sheetSelectedFlag = false;
+    const defaultCountry = this.countriesData.find(country => country.code === 'IN') || null;
+    this.selectedOption = '1';
+    this.myForm.reset({
+      country: defaultCountry,
+      phone: '',
+      message: '',
+      search: '',
+      msgTimeGap: '',
+      batch: '',
+      batchTimeGap: '',
+      header: []
+    });
+    this.filteredContacts = [...this.allContactData];
+    try {
+      await this.chromeService.remove(['popupState', 'attachmentsData']);
+    } catch (error) {
+      console.error('Error clearing saved state:', error);
     }
   }
 
@@ -425,6 +561,7 @@ export class AppComponent implements OnDestroy {
         name: file.name,
         data: `"${base64String}"`// Store the base64 string directly
       });
+      this.persistState();
 
       // Save the updated attachment array to Chrome storage
       chrome.storage.local.set({ attachmentsData: this.attachmentArray }, () => {
@@ -439,6 +576,7 @@ export class AppComponent implements OnDestroy {
     if (this.attachmentArray) {
       // Remove the file from the array
       this.attachmentArray.splice(index, 1);
+      this.persistState();
       // Update Chrome storage
       chrome.storage.local.set({ attachmentsData: this.attachmentArray }, () => {
         console.log('File removed from Chrome storage:', this.attachmentArray);
@@ -502,6 +640,7 @@ export class AppComponent implements OnDestroy {
       reader.readAsBinaryString(file);
     }
     this.sheetSelectedFlag = true;
+    this.persistState();
   }
   
   // onFileChange(event: any): void {
@@ -577,6 +716,7 @@ export class AppComponent implements OnDestroy {
         this.phoneNumbersArray.push(number.trim());
       }
     });
+    this.persistState();
 
     // Clear the input field
     this.myForm.get('phone')?.setValue('');
@@ -591,6 +731,7 @@ export class AppComponent implements OnDestroy {
     if (this.isValidPhoneNumber(value)) {
       this.phoneNumbersArray.push(value);
       inputElement.value = ''; // Clear the input field
+      this.persistState();
     }
   }
 
@@ -634,6 +775,7 @@ export class AppComponent implements OnDestroy {
   onRadioOptionChange(event: any) {
     this.selectedOption = event.value;
     this.myForm.get('message')?.setValue(null);
+    this.persistState();
   }
 
   addWhatsappGroup(event: any): void {
@@ -641,12 +783,14 @@ export class AppComponent implements OnDestroy {
     // Add the group if it is valid and not already added
     if (value.name && !this.whatsappGroupArray.some(obj => obj.name === value.name)) {
       this.whatsappGroupArray.push(value);
+      this.persistState();
     }
   }
 
   removeWhatsappGroup(index: number) {
     if (index >= 0) {
       this.whatsappGroupArray.splice(index, 1); // Remove the number
+      this.persistState();
     }
   }
 
@@ -679,6 +823,7 @@ export class AppComponent implements OnDestroy {
     this.myForm.get('search')?.setValue('');
     this.filteredContacts = this.filteredContacts.filter(c => c !== contact);
     this.showDropdown = false;
+    this.persistState();
   }
 
   removeFromSelected(contact: any) {
@@ -687,6 +832,7 @@ export class AppComponent implements OnDestroy {
     if (!this.filteredContacts.some(c => c.id._serialized === contact.id._serialized)) {
       this.filteredContacts = [...this.filteredContacts, contact];
     }
+    this.persistState();
   }
 
   closeDropdown() {
