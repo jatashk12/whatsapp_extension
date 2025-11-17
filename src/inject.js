@@ -365,7 +365,7 @@ const initPrimes = function () {
 
             contacts = participants.map(p => {
                 let name = p.contact?.name || p.contact?.pushname || p.contact?.shortname || 'Unknown';
-                let number = '+' + p.contact?.id.user;
+                let number = '+' + p.contact?.phoneNumber.user;
                 return { name, number };
             });
         }
